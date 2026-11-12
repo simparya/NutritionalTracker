@@ -1,73 +1,30 @@
-#!/usr/bin/env bash
-# Milestone 2: Check access to Purdue Dining's menu API.
-# Usage: bash check_api.sh [YYYY-MM-DD]
-# This script checks connectivity only; it does not implement the CLI yet.
+#!/bin/bash
 
-set -euo pipefail
+# Check if we can get menu data from Purdue's API
 
-API_BASE="https://api.hfs.purdue.edu/menus/v2"
-LOCATION="Earhart"
-MENU_DATE="${1:-$(date +%Y-%m-%d)}"
+url="https://api.hfs.purdue.edu/menus/v2"
+date_today=$(date +%Y-%m-%d)
 
-if ! [[ "$MENU_DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
-    echo "Usage: bash check_api.sh [YYYY-MM-DD]" >&2
+# Make sure curl and jq are installed
+if ! command -v curl > /dev/null || ! command -v jq > /dev/null; then
+    echo "Please install curl and jq first."
     exit 1
 fi
 
-for command_name in curl jq; do
-    if ! command -v "$command_name" >/dev/null 2>&1; then
-        echo "Error: please install $command_name before running this script." >&2
-        exit 1
-    fi
-done
+echo "Checking Purdue menu API..."
 
-locations_file=$(mktemp)
-menu_file=$(mktemp)
-trap 'rm -f "$locations_file" "$menu_file"' EXIT
-
-echo "Checking Purdue Dining API..."
-
-if ! curl --fail --silent --show-error --location --max-time 20 \
-    --header "Accept: application/json" \
-    "$API_BASE/locations" --output "$locations_file"; then
-    echo "Error: could not retrieve dining locations." >&2
+# Download Earhart's menu for today
+if ! curl -fsSL --max-time 20 "$url/locations/Earhart/$date_today" -o menu_test.json; then
+    echo "Couldn't download today's menu."
     exit 1
 fi
 
-if ! jq -e '.Location | type == "array"' "$locations_file" >/dev/null; then
-    echo "Error: locations response was not in the expected JSON format." >&2
+# Check if the file is valid JSON
+if ! jq empty menu_test.json 2>/dev/null; then
+    echo "The response was not valid JSON."
     exit 1
 fi
 
-echo "Locations endpoint: OK"
-echo "Published locations: $(jq '.Location | length' "$locations_file")"
-
-if ! jq -e --arg name "$LOCATION" \
-    '.Location | any(.Name == $name)' "$locations_file" >/dev/null; then
-    echo "Error: $LOCATION was not found in the locations response." >&2
-    exit 1
-fi
-
-echo "Checking $LOCATION menu for $MENU_DATE..."
-if ! curl --fail --silent --show-error --location --max-time 20 \
-    --header "Accept: application/json" \
-    "$API_BASE/locations/$LOCATION/$MENU_DATE" --output "$menu_file"; then
-    echo "Error: could not retrieve the menu for $LOCATION on $MENU_DATE." >&2
-    exit 1
-fi
-
-if ! jq -e '.Meals | type == "array"' "$menu_file" >/dev/null; then
-    echo "Error: menu response was not in the expected JSON format." >&2
-    exit 1
-fi
-
-echo "Menu endpoint: OK"
-echo "Published: $(jq -r '.IsPublished // "unknown"' "$menu_file")"
-echo "Meals returned: $(jq '.Meals | length' "$menu_file")"
-jq -r '.Meals[].Name // empty' "$menu_file" | sed 's/^/ - /'
-
-if [[ "$(jq -r '.IsPublished // "unknown"' "$menu_file")" != "true" ]]; then
-    echo "Note: this menu may be unpublished; empty meal data is not necessarily an API failure."
-fi
-
-echo "Connection check complete. Nutrition item lookup is a later milestone."
+echo "Got a JSON response from the API."
+echo "Saved it to menu_test.json"
+echo "Open the file to see how the menu data is organized."
